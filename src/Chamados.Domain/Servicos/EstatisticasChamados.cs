@@ -1,3 +1,5 @@
+using Chamados.Domain.Enums;
+
 namespace Chamados.Domain;
 
 /// <summary>Indicadores agregados da base de chamados.</summary>

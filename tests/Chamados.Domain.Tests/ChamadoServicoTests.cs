@@ -1,4 +1,5 @@
 using Chamados.Domain;
+using Chamados.Domain.Enums;
 
 namespace Chamados.Domain.Tests;
 

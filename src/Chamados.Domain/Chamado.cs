@@ -1,3 +1,5 @@
+using Chamados.Domain.Enums;
+
 namespace Chamados.Domain;
 
 /// <summary>

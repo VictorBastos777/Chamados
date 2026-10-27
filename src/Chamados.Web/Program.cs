@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text.Json.Serialization;
 using Chamados.Domain;
+using Chamados.Domain.Enums;
 using Chamados.Web;
 
 var builder = WebApplication.CreateBuilder(args);

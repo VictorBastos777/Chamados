@@ -1,4 +1,4 @@
-namespace Chamados.Domain;
+namespace Chamados.Domain.Enums;
 
 public enum StatusChamado
 {

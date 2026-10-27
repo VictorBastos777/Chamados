@@ -1,3 +1,5 @@
+using Chamados.Domain.Enums;
+
 namespace Chamados.Domain;
 
 /// <summary>Projeção de leitura de um chamado, usada em listagens.</summary>
