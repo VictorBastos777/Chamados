@@ -1,20 +1,36 @@
+# Requisições da API JSON. As páginas (formulários) são testadas no navegador.
 @base = http://localhost:5080
 
 ### Lista todos, ordenados por prioridade
-GET {{base}}/chamados
+GET {{base}}/api/chamados
 
 ### Filtros combinados
-GET {{base}}/chamados?status=Aberto&prioridadeMinima=Alta
-
-### Busca por texto (título ou descrição, sem diferenciar maiúsculas)
-GET {{base}}/chamados?texto=sala
+GET {{base}}/api/chamados?status=Aberto&prioridadeMinima=Alta
 
 ### Estatísticas
-GET {{base}}/chamados/estatisticas
+GET {{base}}/api/chamados/estatisticas
+
+### Abre um chamado pela API (o mesmo ChamadoServico do formulário)
+POST {{base}}/api/chamados
+Content-Type: application/json
+
+{
+  "titulo": "Aberto pela API",
+  "prioridade": "Alta"
+}
+
+### Prioridade inexistente: o domínio recusa e o filtro responde 400 (Problem Details)
+POST {{base}}/api/chamados
+Content-Type: application/json
+
+{
+  "titulo": "Prioridade inválida",
+  "prioridade": 99
+}
 
 ### Inicia atendimento: copie um Id com status Aberto da listagem
 @id = 00000000-0000-0000-0000-000000000000
-POST {{base}}/chamados/{{id}}/atendimento
+POST {{base}}/api/chamados/{{id}}/atendimento
 Content-Type: application/json
 
 {

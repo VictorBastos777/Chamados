@@ -1,20 +1,46 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json.Serialization;
 using Chamados.Domain;
 using Chamados.Domain.Enums;
 using Chamados.Web;
+using Chamados.Web.Api;
+using Chamados.Web.Configuracao;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// --- Composição: quem implementa cada dependência e por quanto tempo vive ---
+// ============ 1. Serviços: o que a aplicação sabe fazer ============
+
+// Configuração tipada e validada já na inicialização.
+builder.Services.AddOptions<SimulacaoOptions>()
+    .BindConfiguration(SimulacaoOptions.Secao)
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+// Camada de negócio (Módulo 2).
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IChamadoRepositorio>(sp =>
-    new RepositorioChamadosEmMemoria(
+{
+    var simulacao = sp.GetRequiredService<IOptions<SimulacaoOptions>>().Value;
+    return new RepositorioChamadosEmMemoria(
         sp.GetRequiredService<TimeProvider>(),
-        TimeSpan.FromMilliseconds(builder.Configuration.GetValue("Simulacao:LatenciaMs", 0))));
+        TimeSpan.FromMilliseconds(simulacao.LatenciaMs));
+});
 builder.Services.AddScoped<ChamadoServico>();
 
-// Enums como texto no JSON (resposta da Q10 do Módulo 1).
+// Interface web: Razor Pages (formulários) e JSON da API.
+builder.Services.AddRazorPages()
+    .AddMvcOptions(options =>
+    {
+        // Erros de conversão do model binding ("abc" num campo numérico, valor fora do enum)
+        // acontecem antes das Data Annotations e vêm em inglês por padrão.
+        var mensagens = options.ModelBindingMessageProvider;
+        mensagens.SetAttemptedValueIsInvalidAccessor((valor, campo) => $"O valor '{valor}' não é válido para {campo}.");
+        mensagens.SetValueIsInvalidAccessor(valor => $"O valor '{valor}' não é válido.");
+        mensagens.SetValueMustNotBeNullAccessor(_ => "Preencha este campo.");
+    });
+builder.Services.AddProblemDetails();
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
@@ -25,70 +51,43 @@ if (app.Environment.IsDevelopment())
     await SementeDados.PopularAsync(app.Services);
 }
 
-app.MapGet("/", () => "Chamados.Web em execução");
+// ============ 2. Pipeline: por onde cada requisição passa, nesta ordem ============
 
-app.MapGet("/status", () => Enum.GetNames<StatusChamado>());
-
-app.MapGet("/chamados", async (
-    StatusChamado? status,
-    Prioridade? prioridadeMinima,
-    string? texto,
-    ChamadoServico servico,
-    ILogger<Program> logger,
-    CancellationToken cancellationToken) =>
+// Middleware próprio: mede cada requisição. Registra método, caminho e status;
+// nunca a query string nem o corpo, que podem carregar dados pessoais.
+app.Use(async (contexto, proximo) =>
 {
-    try
-    {
-        var filtro = new FiltroChamados(status, prioridadeMinima, texto);
-        return Results.Ok(await servico.ListarAsync(filtro, cancellationToken));
-    }
-    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-    {
-        // O cliente desistiu (fechou a aba, timeout): não há para quem responder.
-        logger.LogInformation("Listagem de chamados cancelada pelo cliente.");
-        return Results.Empty;
-    }
+    var inicio = Stopwatch.GetTimestamp();
+    await proximo(contexto);
+    app.Logger.LogInformation("{Metodo} {Caminho} respondeu {Status} em {Duracao:F1} ms",
+        contexto.Request.Method, contexto.Request.Path, contexto.Response.StatusCode,
+        Stopwatch.GetElapsedTime(inicio).TotalMilliseconds);
 });
 
-app.MapGet("/chamados/estatisticas", (ChamadoServico servico, CancellationToken cancellationToken)
-    => servico.ObterEstatisticasAsync(cancellationToken));
-
-app.MapGet("/chamados/{id:guid}", async (Guid id, IChamadoRepositorio repositorio, CancellationToken cancellationToken)
-    => await repositorio.ObterAsync(id, cancellationToken) is { } chamado
-        ? Results.Ok(ResumoChamado.De(chamado))
-        : Results.NotFound());
-
-app.MapPost("/chamados/{id:guid}/atendimento", async (
-    Guid id,
-    IniciarAtendimentoRequest requisicao,
-    ChamadoServico servico,
-    CancellationToken cancellationToken) =>
+if (!app.Environment.IsDevelopment())
 {
-    // Exceções de domínio viram respostas HTTP aqui, no limite da aplicação.
-    try
-    {
-        var chamado = await servico.IniciarAtendimentoAsync(id, requisicao.Responsavel, cancellationToken);
-        return Results.Ok(ResumoChamado.De(chamado));
-    }
-    catch (ChamadoNaoEncontradoException)
-    {
-        return Results.NotFound();
-    }
-    catch (TransicaoInvalidaException ex)
-    {
-        return Results.Conflict(new { erro = ex.Message });
-    }
-    catch (ArgumentException ex)
-    {
-        return Results.BadRequest(new { erro = ex.Message });
-    }
-});
+    // Em produção: página de erro genérica (sem stack trace) e HSTS.
+    // Em Development o ASP.NET Core já mostra a página de exceção do desenvolvedor.
+    app.UseExceptionHandler("/Erro");
+    app.UseHsts();
+}
+
+app.UseHttpsRedirection();
+app.UseRouting();
+
+// ============ 3. Endpoints: quem responde a cada rota ============
+
+app.MapStaticAssets();
+app.MapRazorPages().WithStaticAssets();
+app.MapApiChamados();
+
+app.MapGet("/api/status", () => Enum.GetNames<StatusChamado>());
 
 // Diagnóstico exposto somente em Development:
 // em produção, revelar a versão do runtime ajuda um atacante.
 if (app.Environment.IsDevelopment())
 {
-    app.MapGet("/ambiente", (IHostEnvironment env) => new
+    app.MapGet("/api/ambiente", (IHostEnvironment env) => new
     {
         env.EnvironmentName,
         Runtime = RuntimeInformation.FrameworkDescription
@@ -96,5 +95,3 @@ if (app.Environment.IsDevelopment())
 }
 
 app.Run();
-
-public sealed record IniciarAtendimentoRequest(string Responsavel);
