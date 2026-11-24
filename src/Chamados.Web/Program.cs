@@ -5,6 +5,7 @@ using Chamados.Domain;
 using Chamados.Domain.Enums;
 using Chamados.Web;
 using Chamados.Web.Api;
+using Chamados.Web.Components;
 using Chamados.Web.Configuracao;
 using Microsoft.Extensions.Options;
 
@@ -41,6 +42,10 @@ builder.Services.AddRazorPages()
         mensagens.SetValueMustNotBeNullAccessor(_ => "Preencha este campo.");
     });
 builder.Services.AddProblemDetails();
+
+// Blazor: componentes Razor renderizados no servidor, com interatividade por conexão (SignalR).
+builder.Services.AddRazorComponents()
+    .AddInteractiveServerComponents();
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
@@ -82,11 +87,19 @@ app.UseWhen(
 app.UseHttpsRedirection();
 app.UseRouting();
 
+// Exigido pelos endpoints de componentes Razor: confere o token dos formulários Blazor.
+// As Razor Pages continuam validando o próprio token como antes.
+app.UseAntiforgery();
+
 // ============ 3. Endpoints: quem responde a cada rota ============
 
 app.MapStaticAssets();
 app.MapRazorPages().WithStaticAssets();
 app.MapApiChamados();
+
+// Páginas Blazor (componentes com @page), convivendo com as Razor Pages na mesma aplicação.
+app.MapRazorComponents<App>()
+    .AddInteractiveServerRenderMode();
 
 app.MapGet("/api/status", () => Enum.GetNames<StatusChamado>());
 
