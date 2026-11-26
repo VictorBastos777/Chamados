@@ -1,6 +1,6 @@
 # Chamados
 
-Sistema de gerenciamento de chamados desenvolvido em .NET 10 (ASP.NET Core Razor Pages, Minimal API e Blazor). Estado: Módulo 6.
+Sistema de gerenciamento de chamados desenvolvido em .NET 10 (ASP.NET Core Razor Pages, Minimal API e Blazor). Estado: Módulo 7.
 
 ## Páginas Razor Pages
 
@@ -47,11 +47,42 @@ Componentes do Módulo 6: `Formularios/FormularioChamado` (EditForm com Data Ann
 - **22. JavaScript só no `OnAfterRenderAsync`, em módulo ES isolado:** o `localStorage` guarda só preferência de tela, nunca dado sensível.
 - **23. Fila sem busca duplicada e com cancelamento:** `[PersistentState]` leva a lista da pré-renderização para o circuito; cada busca nova cancela a anterior com `CancellationTokenSource`.
 
+## Decisões de Arquitetura (Módulo 7)
+
+- **24. EF Core com SQLite num projeto próprio:** `Chamados.Infra` implementa `IChamadoRepositorio`; o domínio continua sem referência a EF. A única concessão é um construtor privado sem parâmetros no `Chamado`, para o EF materializar objetos lidos do banco.
+- **25. Mapeamento só por Fluent API**, numa classe `IEntityTypeConfiguration` por entidade; o histórico é entidade *owned* (tabela `HistoricoChamados`), carregada e gravada sempre com o chamado.
+- **26. Consultas no banco, não em memória:** o repositório recebe o filtro e devolve resumos projetados; `Where`, `ORDER BY`, `LIMIT/OFFSET` e `GROUP BY` viram SQL. O repositório em memória mantém a mesma regra para os testes do domínio.
+- **27. Um DbContext por operação, criado por `IDbContextFactory`:** no Blazor Server, um contexto por circuito seria usado por dois componentes ao mesmo tempo, o que o EF não permite.
+- **28. Concorrência no banco:** `Versao` é token de concorrência; o UPDATE leva `WHERE Versao = <lida>` e a falha vira `ConcorrenciaException`.
+- **29. DateTimeOffset gravado como número** (`DateTimeOffsetToBinaryConverter`): o SQLite não ordena nem compara datas com fuso guardadas como texto. O custo é a precisão: frações abaixo do milissegundo se perdem na gravação.
+- **30. API com DTOs, validação automática e OpenAPI:** a entidade nunca é serializada; `AddValidation()` confere as Data Annotations do corpo; o documento OpenAPI é publicado só em Development.
+- **31. Toda mudança de esquema por migration:** nada de `EnsureCreated` nem de editar o banco à mão. Se o modelo muda sem migration, o `MigrateAsync` recusa iniciar (`PendingModelChangesWarning`) e um teste de integração (`HasPendingModelChanges`) acusa antes.
+
+## Banco de dados (Módulo 7)
+
+Os chamados ficam num arquivo SQLite, `src/Chamados.Web/chamados.db` (string de conexão `ConnectionStrings:Chamados`). Em Development, a aplicação aplica as migrations pendentes ao iniciar e, se o banco estiver vazio, grava 12 chamados de exemplo. Para recomeçar do zero, pare a aplicação e apague `chamados.db`, `chamados.db-shm` e `chamados.db-wal`. O arquivo não vai para o Git (`.gitignore`).
+
+Migrations no Visual Studio (**Ferramentas › Gerenciador de Pacotes do NuGet › Console do Gerenciador de Pacotes**, com o projeto padrão `Chamados.Infra` e `Chamados.Web` como projeto de inicialização):
+
+```powershell
+Add-Migration NomeDaMudanca
+Update-Database
+```
+
+Pela CLI (ferramenta `dotnet-ef`):
+
+```powershell
+dotnet ef migrations add NomeDaMudanca --project src/Chamados.Infra --startup-project src/Chamados.Web
+dotnet ef database update --project src/Chamados.Infra --startup-project src/Chamados.Web
+```
+
+O projeto traz duas migrations: `Inicial` (tabelas `Chamados` e `HistoricoChamados`) e `IndicePrioridade` (um índice criado depois, para mostrar o banco evoluindo sem perder dados). Em Development, o log mostra cada comando SQL (categoria `Microsoft.EntityFrameworkCore.Database.Command`), com os valores dos parâmetros ocultos.
+
 ## Configuração (só em Development)
 
 | Chave | Valor | Para quê |
 | --- | --- | --- |
-| `Simulacao:LatenciaMs` | 600 | Atrasa a listagem para ver o indicador de carga e o cancelamento das buscas |
+| `Simulacao:LatenciaMs` | 300 | Atrasa a listagem para ver o indicador de carga e o cancelamento das buscas |
 | `Simulacao:FalhaNaListagemACada` | 0 (desligada) | Faz uma listagem a cada N falhar de propósito, para testar o tratamento de erro |
 
 Valor fora da faixa impede a aplicação de iniciar (`ValidateOnStart`). O perfil **https-falha** do `launchSettings.json` liga a falha a cada 3 listagens sem editar arquivo:
