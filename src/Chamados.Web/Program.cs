@@ -7,6 +7,7 @@ using Chamados.Web;
 using Chamados.Web.Api;
 using Chamados.Web.Components;
 using Chamados.Web.Configuracao;
+using Chamados.Web.Estado;
 using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -24,11 +25,20 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IChamadoRepositorio>(sp =>
 {
     var simulacao = sp.GetRequiredService<IOptions<SimulacaoOptions>>().Value;
-    return new RepositorioChamadosEmMemoria(
+    IChamadoRepositorio repositorio = new RepositorioChamadosEmMemoria(
         sp.GetRequiredService<TimeProvider>(),
         TimeSpan.FromMilliseconds(simulacao.LatenciaMs));
+
+    // Módulo 6: falhas simuladas na listagem, para exercitar o tratamento de erro da fila.
+    // Decorator: mesma interface, comportamento acrescentado por fora do domínio.
+    return simulacao.FalhaNaListagemACada > 0
+        ? new RepositorioComFalhaSimulada(repositorio, simulacao.FalhaNaListagemACada)
+        : repositorio;
 });
 builder.Services.AddScoped<ChamadoServico>();
+
+// Estado compartilhado entre componentes Blazor. Scoped = um por circuito (uma aba conectada).
+builder.Services.AddScoped<EstadoFila>();
 
 // Interface web: Razor Pages (formulários) e JSON da API.
 builder.Services.AddRazorPages()
@@ -83,6 +93,10 @@ if (!app.Environment.IsDevelopment())
 app.UseWhen(
     contexto => !contexto.Request.Path.StartsWithSegments("/api"),
     ramo => ramo.UseStatusCodePagesWithReExecute("/Erro/{0}"));
+
+// Cultura pt-BR para formatar datas e números, nas páginas e nos circuitos do Blazor.
+// A primeira cultura da lista é a padrão; outras entrariam aqui quando houver tradução.
+app.UseRequestLocalization("pt-BR");
 
 app.UseHttpsRedirection();
 app.UseRouting();
