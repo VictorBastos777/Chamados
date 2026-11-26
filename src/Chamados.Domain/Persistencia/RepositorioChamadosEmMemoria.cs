@@ -1,6 +1,6 @@
+using Chamados.Domain.Enums;
 using System.Collections.Concurrent;
 using System.Globalization;
-using Chamados.Domain.Enums;
 
 namespace Chamados.Domain;
 
@@ -91,6 +91,14 @@ public sealed class RepositorioChamadosEmMemoria(TimeProvider relogio, TimeSpan 
         TimeSpan? tempoMedio = tempos.Count == 0 ? null : TimeSpan.FromTicks((long)tempos.Average(t => t.Ticks));
 
         return new EstatisticasChamados(chamados.Count, porStatus, porPrioridade, tempoMedio);
+    }
+
+    public async Task<IReadOnlyList<ResumoChamado>> ListarPorResponsavelAsync(string responsavel, CancellationToken cancellationToken = default)
+    {
+        await SimularLatenciaAsync(cancellationToken);
+        return Ordenar(_chamados.Values.Where(c => c.Responsavel == responsavel), OrdemChamados.Prioridade)
+            .Select(ResumoChamado.De)
+            .ToList();
     }
 
     private IEnumerable<Chamado> Filtrar(FiltroChamados filtro) => _chamados.Values

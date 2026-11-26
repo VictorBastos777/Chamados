@@ -1,6 +1,7 @@
 using Chamados.Domain;
 using Chamados.Domain.Enums;
 using Chamados.Web.Pages.Chamados;
+using Chamados.Web.Seguranca;
 using Microsoft.AspNetCore.Http.HttpResults;
 
 namespace Chamados.Web.Api;
@@ -8,6 +9,8 @@ namespace Chamados.Web.Api;
 /// <summary>
 /// API JSON do Módulo 2, agrupada sob /api desde o Módulo 3.
 /// Módulo 7: detalhe com DTO próprio, validação do corpo e descrição OpenAPI de cada endpoint.
+/// Módulo 8: todo o grupo exige autenticação (cookie ou token); ações de atendimento e indicadores
+/// exigem as políticas correspondentes. Sem login: 401. Logado sem permissão: 403.
 /// </summary>
 public static class EndpointsChamados
 {
@@ -15,6 +18,7 @@ public static class EndpointsChamados
     {
         var api = app.MapGroup("/api/chamados")
             .AddEndpointFilter<FiltroExcecoesDominio>()
+            .RequireAuthorization(Politicas.Api)   // cookie ou token; vale para todos os endpoints abaixo
             .WithTags("Chamados");   // agrupa os endpoints no documento OpenAPI
 
         api.MapGet("/", (StatusChamado? status, Prioridade? prioridadeMinima, string? texto, OrdemChamados? ordem,
@@ -26,7 +30,13 @@ public static class EndpointsChamados
 
         api.MapGet("/estatisticas", (ChamadoServico servico, CancellationToken cancellationToken)
             => servico.ObterEstatisticasAsync(cancellationToken))
+            .RequireAuthorization(Politicas.VerIndicadores)
             .WithSummary("Totais por status e prioridade e tempo médio de resolução");
+
+        // Módulo 8: busca por responsável. No laboratório, esta rota começa vulnerável a injeção de SQL.
+        api.MapGet("/por-responsavel", (string nome, ChamadoServico servico, CancellationToken cancellationToken)
+            => servico.ListarPorResponsavelAsync(nome, cancellationToken))
+            .WithSummary("Chamados atribuídos a um responsável");
 
         // Results<Ok<…>, NotFound>: o tipo de retorno declara os dois status possíveis,
         // e o documento OpenAPI os lista sem anotação extra.
@@ -51,12 +61,14 @@ public static class EndpointsChamados
         api.MapPut("/{id:guid}", async (Guid id, EdicaoChamado comando, ChamadoServico servico,
                 CancellationToken cancellationToken)
             => ResumoChamado.De(await servico.EditarAsync(id, comando, cancellationToken)))
+            .RequireAuthorization(Politicas.Atender)
             .WithSummary("Edita título, prioridade e descrição, conferindo a versão lida");
 
         // Sem try/catch: o FiltroExcecoesDominio responde 404, 409 ou 400.
         api.MapPost("/{id:guid}/atendimento", async (Guid id, IniciarAtendimentoRequest requisicao,
                 ChamadoServico servico, CancellationToken cancellationToken)
             => ResumoChamado.De(await servico.IniciarAtendimentoAsync(id, requisicao.Responsavel, cancellationToken)))
+            .RequireAuthorization(Politicas.Atender)
             .WithSummary("Inicia o atendimento, atribuindo um responsável");
 
         return api;

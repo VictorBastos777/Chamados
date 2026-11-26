@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <ItemGroup>
     <ProjectReference Include="..\Chamados.Domain\Chamados.Domain.csproj" />
@@ -28,6 +28,9 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
+    <!-- Módulo 8: identifica a pasta dos Segredos do Usuário deste projeto, fora do repositório
+         (%APPDATA%\Microsoft\UserSecrets\<id>\secrets.json). O Id não é segredo; o arquivo, sim. -->
+    <UserSecretsId>1d4be86b-3f31-4dce-bfc3-84b09cd653df</UserSecretsId>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
